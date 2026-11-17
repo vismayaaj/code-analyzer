@@ -3,6 +3,7 @@ from .models import Analysis, Finding
 from .analyzers.repo import clone_repo, cleanup
 from .analyzers.ruff_runner import run_ruff
 from .analyzers.bandit_runner import run_bandit
+from .analyzers.radon_runner import run_radon
 
 
 def run_analysis(analysis_id: int) -> None:
@@ -14,7 +15,7 @@ def run_analysis(analysis_id: int) -> None:
 
         repo_path = clone_repo(analysis.repo_url)
         try:
-            findings = run_ruff(repo_path) + run_bandit(repo_path)
+            findings = run_ruff(repo_path) + run_bandit(repo_path) + run_radon(repo_path)
         finally:
             cleanup(repo_path)
 
