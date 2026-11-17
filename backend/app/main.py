@@ -39,17 +39,33 @@ def analyze(req: AnalyzeRequest, background: BackgroundTasks, db: Session = Depe
 
 
 @app.get("/analysis/{analysis_id}")
-def get_analysis(analysis_id: int, db: Session = Depends(get_db)):
+def get_analysis(
+    analysis_id: int,
+    tool: str | None = None,
+    category: str | None = None,
+    db: Session = Depends(get_db),
+):
     analysis = db.get(models.Analysis, analysis_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    total = db.scalar(
-        select(func.count()).select_from(models.Finding).where(models.Finding.analysis_id == analysis_id)
+    conditions = [models.Finding.analysis_id == analysis_id]
+    if tool:
+        conditions.append(models.Finding.tool == tool)
+    if category:
+        conditions.append(models.Finding.category == category)
+
+    total = db.scalar(select(func.count()).select_from(models.Finding).where(*conditions))
+    findings = db.scalars(select(models.Finding).where(*conditions).limit(200)).all()
+
+    # per-tool counts for the whole analysis (useful for the dashboard later)
+    by_tool = dict(
+        db.execute(
+            select(models.Finding.tool, func.count())
+            .where(models.Finding.analysis_id == analysis_id)
+            .group_by(models.Finding.tool)
+        ).all()
     )
-    findings = db.scalars(
-        select(models.Finding).where(models.Finding.analysis_id == analysis_id).limit(200)
-    ).all()
 
     return {
         "id": analysis.id,
@@ -57,6 +73,7 @@ def get_analysis(analysis_id: int, db: Session = Depends(get_db)):
         "status": analysis.status,
         "error": analysis.error,
         "total_findings": total,
+        "findings_by_tool": by_tool,
         "findings": [
             {
                 "tool": f.tool, "category": f.category, "severity": f.severity,
