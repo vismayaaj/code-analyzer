@@ -6,6 +6,14 @@ from .analyzers.bandit_runner import run_bandit
 from .analyzers.radon_runner import run_radon
 from .analyzers.pip_audit_runner import run_pip_audit
 
+TOOLS = [
+    ("ruff", run_ruff),
+    ("bandit", run_bandit),
+    ("radon", run_radon),
+    ("pip-audit", run_pip_audit),
+]
+
+
 def run_analysis(analysis_id: int) -> None:
     db = SessionLocal()
     try:
@@ -14,13 +22,27 @@ def run_analysis(analysis_id: int) -> None:
         db.commit()
 
         repo_path = clone_repo(analysis.repo_url)
+        findings = []
+        tool_errors = []
         try:
-            findings = run_ruff(repo_path) + run_bandit(repo_path) + run_radon(repo_path) + run_pip_audit(repo_path)        
+            for name, runner in TOOLS:
+                try:
+                    findings += runner(repo_path)
+                except Exception as exc:
+                    # one broken tool must not sink the whole analysis
+                    tool_errors.append(f"{name}: {str(exc)[:200]}")
         finally:
             cleanup(repo_path)
 
         db.add_all(Finding(analysis_id=analysis_id, **f) for f in findings)
-        analysis.status = "completed"
+
+        if tool_errors and len(tool_errors) == len(TOOLS):
+            analysis.status = "failed"
+        elif tool_errors:
+            analysis.status = "partial"
+        else:
+            analysis.status = "completed"
+        analysis.error = " | ".join(tool_errors)[:1000] if tool_errors else None
         db.commit()
     except Exception as exc:
         db.rollback()
