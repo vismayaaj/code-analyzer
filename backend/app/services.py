@@ -4,7 +4,7 @@ from .analyzers.repo import clone_repo, cleanup
 from .analyzers.ruff_runner import run_ruff
 from .analyzers.bandit_runner import run_bandit
 from .analyzers.radon_runner import run_radon
-
+from .analyzers.pip_audit_runner import run_pip_audit
 
 def run_analysis(analysis_id: int) -> None:
     db = SessionLocal()
@@ -15,8 +15,7 @@ def run_analysis(analysis_id: int) -> None:
 
         repo_path = clone_repo(analysis.repo_url)
         try:
-            findings = run_ruff(repo_path) + run_bandit(repo_path) + run_radon(repo_path)
-        finally:
+            findings = run_ruff(repo_path) + run_bandit(repo_path) + run_radon(repo_path) + run_pip_audit(repo_path)        finally:
             cleanup(repo_path)
 
         db.add_all(Finding(analysis_id=analysis_id, **f) for f in findings)
