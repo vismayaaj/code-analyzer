@@ -76,9 +76,11 @@ def get_analysis(
         "findings_by_tool": by_tool,
         "findings": [
             {
+                "id": f.id,
                 "tool": f.tool, "category": f.category, "severity": f.severity,
                 "file_path": f.file_path, "line": f.line,
                 "rule_id": f.rule_id, "message": f.message,
+                "ai_explanation": f.ai_explanation,
             }
             for f in findings
         ],

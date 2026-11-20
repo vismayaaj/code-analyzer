@@ -4,3 +4,8 @@ __pycache__/
 *.db
 .env
 node_modules/
+.env
+venv/
+__pycache__/
+*.db
+.venv/
