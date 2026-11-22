@@ -9,3 +9,7 @@ venv/
 __pycache__/
 *.db
 .venv/
+frontend_old/
+frontend_old/
+.pytest_cache/
+frontend_old/
