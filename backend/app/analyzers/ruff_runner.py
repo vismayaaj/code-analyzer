@@ -6,12 +6,17 @@ import sys
 RUFF_TIMEOUT = 180
 RULES = "E,F,W,B,SIM"  # pycodestyle, pyflakes, bugbear, simplify
 
+# Rules that almost always mean a crash at runtime or a silently overwritten function:
+#   F821 undefined name, F822 undefined name in __all__,
+#   F823 local variable used before assignment, F811 redefinition of an unused name
+HIGH_SEVERITY_BUGS = {"F821", "F822", "F823", "F811"}
+
 
 def _classify(code: str) -> tuple[str, str]:
     """Map a Ruff rule code to (category, severity)."""
-    if code.startswith("F8"):          # undefined names, redefinitions
+    if code in HIGH_SEVERITY_BUGS:
         return "bug", "high"
-    if code.startswith(("F", "B")):    # other pyflakes / bugbear
+    if code.startswith(("F", "B")):    # other pyflakes / bugbear (unused imports and variables, etc.)
         return "bug", "medium"
     return "quality", "low"
 
