@@ -1,6 +1,7 @@
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from . import models
@@ -11,6 +12,13 @@ from .services import run_analysis
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AI Code Review & Repository Analyzer")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class AnalyzeRequest(BaseModel):
@@ -38,6 +46,16 @@ def analyze(req: AnalyzeRequest, background: BackgroundTasks, db: Session = Depe
     return {"id": analysis.id, "status": analysis.status}
 
 
+def _count_by(db: Session, column, analysis_id: int) -> dict:
+    return dict(
+        db.execute(
+            select(column, func.count())
+            .where(models.Finding.analysis_id == analysis_id)
+            .group_by(column)
+        ).all()
+    )
+
+
 @app.get("/analysis/{analysis_id}")
 def get_analysis(
     analysis_id: int,
@@ -55,17 +73,19 @@ def get_analysis(
     if category:
         conditions.append(models.Finding.category == category)
 
-    total = db.scalar(select(func.count()).select_from(models.Finding).where(*conditions))
-    findings = db.scalars(select(models.Finding).where(*conditions).limit(200)).all()
-
-    # per-tool counts for the whole analysis (useful for the dashboard later)
-    by_tool = dict(
-        db.execute(
-            select(models.Finding.tool, func.count())
-            .where(models.Finding.analysis_id == analysis_id)
-            .group_by(models.Finding.tool)
-        ).all()
+    severity_order = case(
+        (models.Finding.severity == "high", 0),
+        (models.Finding.severity == "medium", 1),
+        else_=2,
     )
+
+    total = db.scalar(select(func.count()).select_from(models.Finding).where(*conditions))
+    findings = db.scalars(
+        select(models.Finding)
+        .where(*conditions)
+        .order_by(severity_order, models.Finding.id)
+        .limit(200)
+    ).all()
 
     return {
         "id": analysis.id,
@@ -73,7 +93,9 @@ def get_analysis(
         "status": analysis.status,
         "error": analysis.error,
         "total_findings": total,
-        "findings_by_tool": by_tool,
+        "findings_by_tool": _count_by(db, models.Finding.tool, analysis_id),
+        "findings_by_severity": _count_by(db, models.Finding.severity, analysis_id),
+        "findings_by_category": _count_by(db, models.Finding.category, analysis_id),
         "findings": [
             {
                 "id": f.id,
