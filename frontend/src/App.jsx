@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-const API = "http://127.0.0.1:8001";
+const API = import.meta.env.VITE_API_URL || "http://127.0.0.1:8001";
 const BUSY = ["pending", "running"];
 const SEV_COLOR = { high: "#b42318", medium: "#b54708", low: "#475467" };
 
@@ -10,6 +10,17 @@ const box = {
   borderRadius: 10,
   padding: "14px 18px",
 };
+
+// The access code is typed by the visitor and kept only for this browser tab.
+function authHeaders(extra = {}) {
+  let code = "";
+  try {
+    code = sessionStorage.getItem("accessCode") || "";
+  } catch {
+    /* storage unavailable */
+  }
+  return code ? { ...extra, "X-Access-Code": code } : extra;
+}
 
 function Card({ label, value, color }) {
   return (
@@ -49,6 +60,13 @@ function BarChart({ title, counts }) {
 
 export default function App() {
   const [repoUrl, setRepoUrl] = useState("https://github.com/pallets/flask");
+  const [accessCode, setAccessCode] = useState(() => {
+    try {
+      return sessionStorage.getItem("accessCode") || "";
+    } catch {
+      return "";
+    }
+  });
   const [analysisId, setAnalysisId] = useState(null);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -56,6 +74,16 @@ export default function App() {
   const [tool, setTool] = useState("");
   const [category, setCategory] = useState("");
   const [openId, setOpenId] = useState(null);
+
+  function onCodeChange(e) {
+    const value = e.target.value;
+    setAccessCode(value);
+    try {
+      sessionStorage.setItem("accessCode", value);
+    } catch {
+      /* storage unavailable */
+    }
+  }
 
   async function startAnalysis(e) {
     e.preventDefault();
@@ -69,7 +97,7 @@ export default function App() {
     try {
       const res = await fetch(`${API}/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ repo_url: repoUrl }),
       });
       const body = await res.json();
@@ -82,7 +110,7 @@ export default function App() {
     }
   }
 
-  // Poll until the analysis finishes, then a few more times to pick up AI explanations
+  // Poll until the analysis finishes, then a while longer to pick up AI explanations
   useEffect(() => {
     if (!analysisId) return;
     let stopped = false;
@@ -94,13 +122,19 @@ export default function App() {
         const params = new URLSearchParams();
         if (tool) params.set("tool", tool);
         if (category) params.set("category", category);
-        const res = await fetch(`${API}/analysis/${analysisId}?${params}`);
+        const res = await fetch(`${API}/analysis/${analysisId}?${params}`, {
+          headers: authHeaders(),
+        });
         const body = await res.json();
         if (stopped) return;
+        if (!res.ok) {
+          setError(body.detail || "Request failed");
+          return;
+        }
         setData(body);
         if (BUSY.includes(body.status)) {
           timer = setTimeout(poll, 3000);
-        } else if (extraPolls < 8) {
+        } else if (extraPolls < 30) {
           extraPolls += 1;
           timer = setTimeout(poll, 3000);
         }
@@ -123,6 +157,19 @@ export default function App() {
   return (
     <div style={{ maxWidth: 1000, margin: "32px auto", padding: "0 16px" }}>
       <h1 style={{ marginBottom: 16 }}>Code Review & Repository Analyzer</h1>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <label htmlFor="access-code" style={{ color: "#667085" }}>Access code</label>
+        <input
+          id="access-code"
+          type="password"
+          value={accessCode}
+          onChange={onCodeChange}
+          placeholder="only needed on the hosted version"
+          autoComplete="off"
+          style={{ padding: 6, width: 280 }}
+        />
+      </div>
 
       <form onSubmit={startAnalysis} style={{ display: "flex", gap: 8 }}>
         <input

@@ -24,7 +24,11 @@ def session_factory():
 
 
 @pytest.fixture()
-def client(session_factory):
+def client(session_factory, monkeypatch):
+    from app import main
+
+    monkeypatch.setattr(main, "ACCESS_CODE", "")  # gate off unless a test turns it on
+
     def override_get_db():
         db = session_factory()
         try:

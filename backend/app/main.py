@@ -1,4 +1,11 @@
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+import os
+import secrets
+
+from dotenv import load_dotenv
+
+load_dotenv()  # read backend/.env before the other modules read their settings
+
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import case, func, select
@@ -11,11 +18,29 @@ from .services import run_analysis
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="AI Code Review & Repository Analyzer")
+# On a server, set ACCESS_CODE: every request must then send it in the X-Access-Code header.
+# Leave it empty for local development and the app stays open.
+ACCESS_CODE = os.getenv("ACCESS_CODE", "")
+
+
+def require_access(x_access_code: str = Header(default="")):
+    if ACCESS_CODE and not secrets.compare_digest(
+        x_access_code.encode("utf-8"), ACCESS_CODE.encode("utf-8")
+    ):
+        raise HTTPException(status_code=401, detail="Access code required")
+
+
+# When the gate is on, also hide the interactive API docs.
+app = FastAPI(
+    title="AI Code Review & Repository Analyzer",
+    docs_url=None if ACCESS_CODE else "/docs",
+    redoc_url=None if ACCESS_CODE else "/redoc",
+    openapi_url=None if ACCESS_CODE else "/openapi.json",
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -30,7 +55,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/analyze", status_code=202)
+@app.post("/analyze", status_code=202, dependencies=[Depends(require_access)])
 def analyze(req: AnalyzeRequest, background: BackgroundTasks, db: Session = Depends(get_db)):
     try:
         url = validate_repo_url(req.repo_url)
@@ -56,7 +81,7 @@ def _count_by(db: Session, column, analysis_id: int) -> dict:
     )
 
 
-@app.get("/analysis/{analysis_id}")
+@app.get("/analysis/{analysis_id}", dependencies=[Depends(require_access)])
 def get_analysis(
     analysis_id: int,
     tool: str | None = None,
